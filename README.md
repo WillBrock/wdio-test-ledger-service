@@ -1,6 +1,6 @@
 # WebdriverIO Test Ledger Service
 
-WDIO service that takes results from [wdio-test-reporter](https://github.com/WillBrock/wdio-test-ledger-reporter) and uploads them to [testledger.dev](https://testledger.dev)
+WDIO service that takes results from [wdio-test-ledger-reporter](https://github.com/WillBrock/wdio-test-ledger-reporter) and uploads them to [testledger.dev](https://testledger.dev)
 
 testledger.dev stores and tracks all test runs with extensive details about each test. This gives you a historical overivew of how your tests are running.
 
