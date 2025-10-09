@@ -3,9 +3,9 @@ import path from 'path';
 import btoa from 'btoa';
 import { SevereServiceError } from 'webdriverio';
 
-const api_url = `https://app-api.testreporter.io`;
+const api_url = `https://app-api.testledger.dev`;
 
-class TestReporterLauncher {
+class TestLedgerLauncher {
 	constructor(options) {
 		this.options = options;
 
@@ -203,4 +203,4 @@ class TestReporterLauncher {
 }
 
 export default class TestReporterService {};
-export const launcher = TestReporterLauncher;
+export const launcher = TestLedgerLauncher;
