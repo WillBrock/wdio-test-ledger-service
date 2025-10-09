@@ -35,6 +35,9 @@ jobs:
           npm install -g npm@latest
           npm --version
 
+      - name: Test NPM Auth via OIDC
+        run: npm whoami --registry=https://registry.npmjs.org
+
       - name: Git Setup
         run: |
           git config --global user.email "wpbrock@gmail.com"
