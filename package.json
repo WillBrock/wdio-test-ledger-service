@@ -1,0 +1,36 @@
+{
+  "name": "wdio-test-ledger",
+  "version": "9.0.0",
+  "description": "WebdriverIO reporter used for testledger.dev integration",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "release": "release-it --github.release"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/WillBrock/wdio-test-ledger.git"
+  },
+  "keywords": [
+    "wdio",
+    "reporter",
+    "test",
+    "tests",
+    "e2e",
+    "webdriver",
+    "webdriverio",
+    "wdio",
+    "testing",
+    "ledger"
+  ],
+  "author": "Will Brock",
+  "license": "ISC",
+  "dependencies": {
+    "@wdio/reporter": "^8.27.0",
+    "btoa": "^1.2.1",
+    "strip-ansi": "^7.1.2"
+  },
+  "devDependencies": {
+    "release-it": "^19.0.5"
+  }
+}
