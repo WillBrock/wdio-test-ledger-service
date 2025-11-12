@@ -76,7 +76,7 @@ class TestLedgerLauncher {
 		};
 
 		for(const file of files) {
-			if(!file.match(/test-reporter.log/)) {
+			if(!file.match(/.log/)) {
 				continue;
 			}
 
