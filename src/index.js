@@ -34,9 +34,9 @@ class TestLedgerLauncher {
 		}
 
 		// Artifact upload options
-		this.upload_artifacts = this.options.upload_artifacts || false;
-		this.screenshot_dir   = this.options.screenshot_dir || null;
-		this.video_dir        = this.options.video_dir || null;
+		this.upload_artifacts = this.options.uploadArtifacts || false;
+		this.screenshot_dir   = this.options.screenshotDir || null;
+		this.video_dir        = this.options.videoDir || null;
 	}
 
 	onPrepare() {

@@ -23,9 +23,9 @@ services: [['test-ledger', {
 	projectId         : 123,                       // Only needed if using more than one project
 	appVersion        : `2.8.10`,                  // The code version can also be set here
 	enableFlaky       : 1,                         // Will mark tests as flaky if it detects them based on previous runs
-	upload_artifacts  : true,                      // Enable screenshot/video artifact uploads
-	screenshot_dir    : `./screenshots`,           // Directory containing screenshots
-	video_dir         : `./_results_/videos`,      // Directory containing videos (e.g. from wdio-video-reporter)
+	uploadArtifacts   : true,                      // Enable screenshot/video artifact uploads
+	screenshotDir     : `./screenshots`,           // Directory containing screenshots
+	videoDir          : `./_results_/videos`,      // Directory containing videos (e.g. from wdio-video-reporter)
 }]],
 ```
 
@@ -51,9 +51,9 @@ The service can upload screenshots and videos to Test Ledger, making them viewab
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `upload_artifacts` | `boolean` | Enable artifact uploads. Default: `false` |
-| `screenshot_dir` | `string` | Directory containing screenshot files (png, jpg, jpeg, gif, webp) |
-| `video_dir` | `string` | Directory containing video files (webm, mp4, mov) |
+| `uploadArtifacts` | `boolean` | Enable artifact uploads. Default: `false` |
+| `screenshotDir` | `string` | Directory containing screenshot files (png, jpg, jpeg, gif, webp) |
+| `videoDir` | `string` | Directory containing video files (webm, mp4, mov) |
 
 ### Example with wdio-video-reporter
 
@@ -72,9 +72,9 @@ services: [['test-ledger', {
 	reporterOutputDir : './testledger',
 	username          : 'your-email@example.com',
 	apiToken          : 'your-api-token',
-	upload_artifacts  : true,
-	screenshot_dir    : './screenshots',
-	video_dir         : './_results_/videos'
+	uploadArtifacts   : true,
+	screenshotDir     : './screenshots',
+	videoDir          : './_results_/videos'
 }]]
 ```
 
