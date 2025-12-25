@@ -5,6 +5,18 @@ import { SevereServiceError } from 'webdriverio';
 
 const api_url = `https://app-api.testledger.dev`;
 
+// MIME type mapping for artifacts
+const MIME_TYPES = {
+	'.png'  : 'image/png',
+	'.jpg'  : 'image/jpeg',
+	'.jpeg' : 'image/jpeg',
+	'.gif'  : 'image/gif',
+	'.webp' : 'image/webp',
+	'.webm' : 'video/webm',
+	'.mp4'  : 'video/mp4',
+	'.mov'  : 'video/quicktime'
+};
+
 class TestLedgerLauncher {
 	constructor(options) {
 		this.options = options;
@@ -20,6 +32,11 @@ class TestLedgerLauncher {
 		if(!this.options.apiToken) {
 			throw new SevereServiceError(`No apiToken specified`)
 		}
+
+		// Artifact upload options
+		this.upload_artifacts = this.options.upload_artifacts || false;
+		this.screenshot_dir   = this.options.screenshot_dir || null;
+		this.video_dir        = this.options.video_dir || null;
 	}
 
 	onPrepare() {
@@ -34,8 +51,15 @@ class TestLedgerLauncher {
 		const data = this.buildData(config);
 
 		try {
-			const tmp = await this.post(data);
+			const response = await this.post(data);
+			const result   = await response.json();
+
 			fs.writeFileSync(`${this.options.reporterOutputDir}/trio-onComplete-post.txt`, `onComplete-post`, { encoding : `utf-8` });
+
+			// Upload artifacts if enabled
+			if(this.upload_artifacts && result.status === 'success') {
+				await this.upload_all_artifacts(data, result);
+			}
 		}
 		catch(e) {
 			fs.writeFileSync(`${this.options.reporterOutputDir}/trio-post-error.txt`, e.message, { encoding : `utf-8` });
@@ -199,6 +223,266 @@ class TestLedgerLauncher {
 			this.options.username,
 			this.options.apiToken,
 		].join(`:`));
+	}
+
+	/**
+	 * Upload all artifacts (screenshots and videos) after test run is posted
+	 */
+	async upload_all_artifacts(data, run_result) {
+		const artifacts = this.collect_artifacts(data, run_result);
+
+		if(artifacts.length === 0) {
+			fs.writeFileSync(`${this.options.reporterOutputDir}/trio-no-artifacts.txt`, `No artifacts found to upload`, { encoding : `utf-8` });
+			return;
+		}
+
+		fs.writeFileSync(`${this.options.reporterOutputDir}/trio-artifacts-found.txt`, `Found ${artifacts.length} artifacts`, { encoding : `utf-8` });
+
+		try {
+			// Request presigned URLs
+			const presigned_response = await this.request_presigned_urls(artifacts);
+
+			if(!presigned_response.uploads || presigned_response.uploads.length === 0) {
+				fs.writeFileSync(`${this.options.reporterOutputDir}/trio-presigned-empty.txt`, `No presigned URLs returned`, { encoding : `utf-8` });
+				return;
+			}
+
+			// Upload each artifact to S3
+			const upload_results = await this.upload_to_s3(presigned_response.uploads, artifacts);
+
+			// Confirm successful uploads
+			const confirmed_ids = upload_results
+				.filter(r => r.success)
+				.map(r => r.artifact_id);
+
+			if(confirmed_ids.length > 0) {
+				await this.confirm_uploads(confirmed_ids);
+			}
+
+			fs.writeFileSync(`${this.options.reporterOutputDir}/trio-artifacts-complete.txt`, `Uploaded ${confirmed_ids.length}/${artifacts.length} artifacts`, { encoding : `utf-8` });
+		}
+		catch(e) {
+			fs.writeFileSync(`${this.options.reporterOutputDir}/trio-artifacts-error.txt`, e.message, { encoding : `utf-8` });
+		}
+	}
+
+	/**
+	 * Collect all artifact files and match them to suites/tests
+	 */
+	collect_artifacts(data, run_result) {
+		const artifacts = [];
+
+		// Build lookup maps from run result
+		const suite_map = {};
+		for(const suite of run_result.suites) {
+			suite_map[suite.suite_key] = suite.id;
+		}
+
+		const test_map = {};
+		for(const test of run_result.tests) {
+			test_map[test.suite_test_key] = {
+				id              : test.id,
+				test_run_suite_id : test.test_run_suite_id
+			};
+		}
+
+		// Collect screenshots
+		if(this.screenshot_dir && fs.existsSync(this.screenshot_dir)) {
+			const screenshot_files = this.find_files(this.screenshot_dir, ['.png', '.jpg', '.jpeg', '.gif', '.webp']);
+
+			for(const file_path of screenshot_files) {
+				const filename      = path.basename(file_path);
+				const matched_suite = this.match_file_to_suite(filename, data.suites, suite_map);
+
+				if(matched_suite) {
+					artifacts.push({
+						type              : 'screenshot',
+						filename          : filename,
+						path              : file_path,
+						mime_type         : MIME_TYPES[path.extname(file_path).toLowerCase()] || 'image/png',
+						file_size         : fs.statSync(file_path).size,
+						test_run_suite_id : matched_suite.suite_id,
+						test_run_suite_test_id : matched_suite.test_id || null
+					});
+				}
+			}
+		}
+
+		// Collect videos
+		if(this.video_dir && fs.existsSync(this.video_dir)) {
+			const video_files = this.find_files(this.video_dir, ['.webm', '.mp4', '.mov']);
+
+			for(const file_path of video_files) {
+				const filename      = path.basename(file_path);
+				const matched_suite = this.match_file_to_suite(filename, data.suites, suite_map);
+
+				if(matched_suite) {
+					artifacts.push({
+						type              : 'video',
+						filename          : filename,
+						path              : file_path,
+						mime_type         : MIME_TYPES[path.extname(file_path).toLowerCase()] || 'video/webm',
+						file_size         : fs.statSync(file_path).size,
+						test_run_suite_id : matched_suite.suite_id,
+						test_run_suite_test_id : matched_suite.test_id || null
+					});
+				}
+			}
+		}
+
+		return artifacts;
+	}
+
+	/**
+	 * Find all files with given extensions in a directory (recursive)
+	 */
+	find_files(dir, extensions) {
+		const files = [];
+
+		const items = fs.readdirSync(dir, { withFileTypes: true });
+		for(const item of items) {
+			const full_path = path.join(dir, item.name);
+
+			if(item.isDirectory()) {
+				files.push(...this.find_files(full_path, extensions));
+			}
+			else if(extensions.includes(path.extname(item.name).toLowerCase())) {
+				files.push(full_path);
+			}
+		}
+
+		return files;
+	}
+
+	/**
+	 * Match an artifact filename to a suite based on spec file name
+	 */
+	match_file_to_suite(filename, suites, suite_map) {
+		const lower_filename = filename.toLowerCase();
+
+		for(const suite of suites) {
+			// Extract spec file name without extension
+			const spec_base = path.basename(suite.spec_file, path.extname(suite.spec_file)).toLowerCase();
+
+			// Check if the artifact filename contains the spec name
+			if(lower_filename.includes(spec_base)) {
+				const suite_key = `${suite.title}:${suite.spec_file}:${suite.capabilities}`;
+				const suite_id  = suite_map[suite_key];
+
+				if(suite_id) {
+					return {
+						suite_id : suite_id,
+						test_id  : null // Could enhance to match specific tests
+					};
+				}
+			}
+		}
+
+		// If no match found, return the first suite as fallback
+		if(suites.length > 0) {
+			const suite     = suites[0];
+			const suite_key = `${suite.title}:${suite.spec_file}:${suite.capabilities}`;
+			const suite_id  = suite_map[suite_key];
+
+			if(suite_id) {
+				return {
+					suite_id : suite_id,
+					test_id  : null
+				};
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Request presigned URLs from Test Ledger API
+	 */
+	async request_presigned_urls(artifacts) {
+		const payload = {
+			artifacts: artifacts.map(a => ({
+				test_run_suite_test_id : a.test_run_suite_test_id,
+				test_run_suite_id      : a.test_run_suite_id,
+				artifact_type          : a.type,
+				filename               : a.filename,
+				mime_type              : a.mime_type,
+				file_size              : a.file_size
+			}))
+		};
+
+		const response = await fetch(`${this.getApiUrl()}/artifacts/presigned-upload`, {
+			method  : 'POST',
+			headers : {
+				'Content-Type'  : 'application/json',
+				'Authorization' : `Basic ${this.getAuthToken()}`
+			},
+			body : JSON.stringify(payload)
+		});
+
+		return response.json();
+	}
+
+	/**
+	 * Upload artifacts to S3 using presigned URLs
+	 */
+	async upload_to_s3(uploads, artifacts) {
+		const results = [];
+
+		for(let i = 0; i < uploads.length; i++) {
+			const upload   = uploads[i];
+			const artifact = artifacts[i];
+
+			try {
+				const file_buffer = fs.readFileSync(artifact.path);
+
+				const response = await fetch(upload.presigned_url, {
+					method  : 'PUT',
+					headers : {
+						'Content-Type' : artifact.mime_type
+					},
+					body : file_buffer
+				});
+
+				if(response.ok) {
+					results.push({
+						artifact_id : upload.artifact_id,
+						success     : true
+					});
+				}
+				else {
+					results.push({
+						artifact_id : upload.artifact_id,
+						success     : false,
+						error       : `HTTP ${response.status}`
+					});
+				}
+			}
+			catch(e) {
+				results.push({
+					artifact_id : upload.artifact_id,
+					success     : false,
+					error       : e.message
+				});
+			}
+		}
+
+		return results;
+	}
+
+	/**
+	 * Confirm successful uploads with Test Ledger API
+	 */
+	async confirm_uploads(artifact_ids) {
+		const response = await fetch(`${this.getApiUrl()}/artifacts/confirm`, {
+			method  : 'POST',
+			headers : {
+				'Content-Type'  : 'application/json',
+				'Authorization' : `Basic ${this.getAuthToken()}`
+			},
+			body : JSON.stringify({ artifact_ids: artifact_ids })
+		});
+
+		return response.json();
 	}
 }
 
