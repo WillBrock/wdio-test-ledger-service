@@ -25,12 +25,12 @@ class TestLedgerLauncher {
 			throw new SevereServiceError(`No reporterOutputDir specified`)
 		}
 
-		if(!this.options.username) {
-			throw new SevereServiceError(`No username specified`)
-		}
+		// Support env vars with fallback to options
+		this.apiToken = process.env.TESTLEDGER_API_TOKEN || this.options.apiToken;
+		this.username = process.env.TESTLEDGER_USERNAME || this.options.username;
 
-		if(!this.options.apiToken) {
-			throw new SevereServiceError(`No apiToken specified`)
+		if(!this.apiToken) {
+			throw new SevereServiceError(`No apiToken specified. Set TESTLEDGER_API_TOKEN env var or pass apiToken option.`)
 		}
 
 		// Artifact upload options
@@ -201,7 +201,7 @@ class TestLedgerLauncher {
 			method  : `POST`,
 			headers : {
 				'Content-Type'  : `application/json`,
-				'Authorization' : `Basic ${this.getAuthToken()}`,
+				'Authorization' : this.getAuthHeader(),
 			},
 			body : JSON.stringify(data),
 		});
@@ -218,11 +218,12 @@ class TestLedgerLauncher {
 		].join(``);
 	}
 
-	getAuthToken() {
-		return btoa([
-			this.options.username,
-			this.options.apiToken,
-		].join(`:`));
+	getAuthHeader() {
+		// Use Bearer auth if no username, otherwise Basic auth for backward compatibility
+		if(!this.username) {
+			return `Bearer ${this.apiToken}`;
+		}
+		return `Basic ${btoa(`${this.username}:${this.apiToken}`)}`;
 	}
 
 	/**
@@ -414,7 +415,7 @@ class TestLedgerLauncher {
 			method  : 'POST',
 			headers : {
 				'Content-Type'  : 'application/json',
-				'Authorization' : `Basic ${this.getAuthToken()}`
+				'Authorization' : this.getAuthHeader()
 			},
 			body : JSON.stringify(payload)
 		});
@@ -477,7 +478,7 @@ class TestLedgerLauncher {
 			method  : 'POST',
 			headers : {
 				'Content-Type'  : 'application/json',
-				'Authorization' : `Basic ${this.getAuthToken()}`
+				'Authorization' : this.getAuthHeader()
 			},
 			body : JSON.stringify({ artifact_ids: artifact_ids })
 		});
