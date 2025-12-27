@@ -1,6 +1,5 @@
 import fs   from 'fs-extra';
 import path from 'path';
-import btoa from 'btoa';
 import { SevereServiceError } from 'webdriverio';
 
 const api_url = `https://app-api.testledger.dev`;
@@ -25,9 +24,8 @@ class TestLedgerLauncher {
 			throw new SevereServiceError(`No reporterOutputDir specified`)
 		}
 
-		// Support env vars with fallback to options
+		// Support env var with fallback to option
 		this.apiToken = process.env.TESTLEDGER_API_TOKEN || this.options.apiToken;
-		this.username = process.env.TESTLEDGER_USERNAME || this.options.username;
 
 		if(!this.apiToken) {
 			throw new SevereServiceError(`No apiToken specified. Set TESTLEDGER_API_TOKEN env var or pass apiToken option.`)
@@ -219,11 +217,7 @@ class TestLedgerLauncher {
 	}
 
 	getAuthHeader() {
-		// Use Bearer auth if no username, otherwise Basic auth for backward compatibility
-		if(!this.username) {
-			return `Bearer ${this.apiToken}`;
-		}
-		return `Basic ${btoa(`${this.username}:${this.apiToken}`)}`;
+		return `Bearer ${this.apiToken}`;
 	}
 
 	/**
