@@ -119,14 +119,26 @@ class TestLedgerLauncher {
 				fs.writeFileSync(`${this.options.reporterOutputDir}/trio-readfile-error.txt`, e.message, { encoding : `utf-8` });
 			}
 
-			const identifier = file.match(/wdio-(\d+-\d+)-/)[1];
+			const match = file.match(/wdio-(\d+-\d+)-/);
+			if(!match) {
+				continue;
+			}
+			const identifier = match[1];
 
 			if(!tmp) {
 				continue;
 			}
 
-			const content   = JSON.parse(tmp);
-			const suite_key = btoa(`${identifier}:${content.spec_file}:${content.capabilities}:${content.title}`);
+			let content;
+			try {
+				content = JSON.parse(tmp);
+			}
+			catch(e) {
+				fs.writeFileSync(`${this.options.reporterOutputDir}/trio-json-parse-error.txt`, `Failed to parse ${file}: ${e.message}`, { encoding : `utf-8` });
+				continue;
+			}
+
+			const suite_key = Buffer.from(`${identifier}:${content.spec_file}:${content.capabilities}:${content.title}`).toString('base64');
 
 			if(content.passed && Number(process.env.SKIP_PASSED_UPLOADS) === 1) {
 				continue;
@@ -148,7 +160,7 @@ class TestLedgerLauncher {
 
 			for(const test of content.tests) {
 				const hook     = test.type === `hook`;
-				const test_key = btoa(`${identifier}:${content.spec_file}:${content.capabilities}:${content.title}:${test.title}`);
+				const test_key = Buffer.from(`${identifier}:${content.spec_file}:${content.capabilities}:${content.title}:${test.title}`).toString('base64');
 
 				if(!all_errors[test_key]) {
 					all_errors[test_key] = [];
