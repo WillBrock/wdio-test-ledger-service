@@ -46,7 +46,15 @@ class TestLedgerLauncher {
 	}
 
 	async onComplete(exit_code, config) {
-		const data = this.buildData(config);
+		let data = null;
+		try {
+			data = this.buildData(config);
+		}
+		catch(e) {
+			fs.writeFileSync(`${this.options.reporterOutputDir}/trio-builddata-error.txt`, e.message, { encoding : `utf-8` });
+			return;
+		}
+
 
 		try {
 			const response = await this.post(data);
