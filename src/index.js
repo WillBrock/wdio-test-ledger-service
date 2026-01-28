@@ -414,37 +414,51 @@ class TestLedgerLauncher {
 	 * Request presigned URLs from Test Ledger API
 	 */
 	async request_presigned_urls(artifacts) {
-		const payload = {
-			artifacts: artifacts.map(a => ({
-				test_run_suite_test_id : a.test_run_suite_test_id,
-				test_run_suite_id      : a.test_run_suite_id,
-				artifact_type          : a.type,
-				filename               : a.filename,
-				mime_type              : a.mime_type,
-				file_size              : a.file_size
-			}))
-		};
-
+		const BATCH_SIZE = 50;
 		const url = `${this.getApiUrl()}/artifacts/presigned-upload`;
+		const all_uploads = [];
 
-		fs.writeFileSync(`${this.options.reporterOutputDir}/trio-presigned-request.txt`, `URL: ${url}\nPayload: ${JSON.stringify(payload, null, 2)}`, { encoding: 'utf-8' });
+		// Process artifacts in batches of 50 (API limit)
+		for (let i = 0; i < artifacts.length; i += BATCH_SIZE) {
+			const batch = artifacts.slice(i, i + BATCH_SIZE);
+			const batch_num = Math.floor(i / BATCH_SIZE) + 1;
+			const total_batches = Math.ceil(artifacts.length / BATCH_SIZE);
 
-		const response = await fetch(url, {
-			method  : 'POST',
-			headers : {
-				'Content-Type'  : 'application/json',
-				'Authorization' : this.getAuthHeader()
-			},
-			body : JSON.stringify(payload)
-		});
+			const payload = {
+				artifacts: batch.map(a => ({
+					test_run_suite_test_id : a.test_run_suite_test_id,
+					test_run_suite_id      : a.test_run_suite_id,
+					artifact_type          : a.type,
+					filename               : a.filename,
+					mime_type              : a.mime_type,
+					file_size              : a.file_size
+				}))
+			};
 
-		if (!response.ok) {
-			const text = await response.text();
-			fs.writeFileSync(`${this.options.reporterOutputDir}/trio-presigned-failed.txt`, `Status: ${response.status} ${response.statusText}\nURL: ${url}\nResponse: ${text.substring(0, 2000)}`, { encoding: 'utf-8' });
-			throw new Error(`Presigned URL request failed: HTTP ${response.status}`);
+			fs.writeFileSync(`${this.options.reporterOutputDir}/trio-presigned-request.txt`, `URL: ${url}\nBatch: ${batch_num}/${total_batches}\nTotal artifacts: ${artifacts.length}\nBatch size: ${batch.length}`, { encoding: 'utf-8' });
+
+			const response = await fetch(url, {
+				method  : 'POST',
+				headers : {
+					'Content-Type'  : 'application/json',
+					'Authorization' : this.getAuthHeader()
+				},
+				body : JSON.stringify(payload)
+			});
+
+			if (!response.ok) {
+				const text = await response.text();
+				fs.writeFileSync(`${this.options.reporterOutputDir}/trio-presigned-failed.txt`, `Status: ${response.status} ${response.statusText}\nURL: ${url}\nBatch: ${batch_num}/${total_batches}\nResponse: ${text.substring(0, 2000)}`, { encoding: 'utf-8' });
+				throw new Error(`Presigned URL request failed: HTTP ${response.status}`);
+			}
+
+			const result = await response.json();
+			if (result.uploads) {
+				all_uploads.push(...result.uploads);
+			}
 		}
 
-		return response.json();
+		return { uploads: all_uploads };
 	}
 
 	/**
@@ -498,16 +512,27 @@ class TestLedgerLauncher {
 	 * Confirm successful uploads with Test Ledger API
 	 */
 	async confirm_uploads(artifact_ids) {
-		const response = await fetch(`${this.getApiUrl()}/artifacts/confirm`, {
-			method  : 'POST',
-			headers : {
-				'Content-Type'  : 'application/json',
-				'Authorization' : this.getAuthHeader()
-			},
-			body : JSON.stringify({ artifact_ids: artifact_ids })
-		});
+		const BATCH_SIZE = 50;
+		const url = `${this.getApiUrl()}/artifacts/confirm`;
 
-		return response.json();
+		for (let i = 0; i < artifact_ids.length; i += BATCH_SIZE) {
+			const batch = artifact_ids.slice(i, i + BATCH_SIZE);
+
+			const response = await fetch(url, {
+				method  : 'POST',
+				headers : {
+					'Content-Type'  : 'application/json',
+					'Authorization' : this.getAuthHeader()
+				},
+				body : JSON.stringify({ artifact_ids: batch })
+			});
+
+			if (!response.ok) {
+				const text = await response.text();
+				fs.writeFileSync(`${this.options.reporterOutputDir}/trio-confirm-failed.txt`, `Status: ${response.status} ${response.statusText}\nResponse: ${text.substring(0, 2000)}`, { encoding: 'utf-8' });
+				throw new Error(`Confirm uploads failed: HTTP ${response.status}`);
+			}
+		}
 	}
 }
 
