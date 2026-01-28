@@ -425,7 +425,11 @@ class TestLedgerLauncher {
 			}))
 		};
 
-		const response = await fetch(`${this.getApiUrl()}/artifacts/presigned-upload`, {
+		const url = `${this.getApiUrl()}/artifacts/presigned-upload`;
+
+		fs.writeFileSync(`${this.options.reporterOutputDir}/trio-presigned-request.txt`, `URL: ${url}\nPayload: ${JSON.stringify(payload, null, 2)}`, { encoding: 'utf-8' });
+
+		const response = await fetch(url, {
 			method  : 'POST',
 			headers : {
 				'Content-Type'  : 'application/json',
@@ -433,6 +437,12 @@ class TestLedgerLauncher {
 			},
 			body : JSON.stringify(payload)
 		});
+
+		if (!response.ok) {
+			const text = await response.text();
+			fs.writeFileSync(`${this.options.reporterOutputDir}/trio-presigned-failed.txt`, `Status: ${response.status} ${response.statusText}\nURL: ${url}\nResponse: ${text.substring(0, 2000)}`, { encoding: 'utf-8' });
+			throw new Error(`Presigned URL request failed: HTTP ${response.status}`);
+		}
 
 		return response.json();
 	}
