@@ -16,6 +16,9 @@ const MIME_TYPES = {
 	'.mov'  : 'video/quicktime'
 };
 
+const FILE_PREFIX       = `test-ledger-`;
+const ERROR_FILE_PREFIX = `${FILE_PREFIX}error-`;
+
 class TestLedgerLauncher {
 	constructor(options) {
 		this.options = options;
@@ -40,7 +43,7 @@ class TestLedgerLauncher {
 	onPrepare() {
 		fs.emptyDirSync(this.options.reporterOutputDir);
 
-		fs.writeFileSync(`${this.options.reporterOutputDir}/trio-onPrepare.txt`, `onPrepare called`, { encoding : `utf-8` });
+		this.writeFileSync(`${FILE_PREFIX}onPrepare.txt`, `onPrepare called`);
 
 		this.start = new Date();
 	}
@@ -51,7 +54,7 @@ class TestLedgerLauncher {
 			data = this.buildData(config);
 		}
 		catch(e) {
-			fs.writeFileSync(`${this.options.reporterOutputDir}/trio-builddata-error.txt`, e.message, { encoding : `utf-8` });
+			this.writeFileSync(`${ERROR_FILE_PREFIX}builddata.txt`, e.message, { encoding : `utf-8` });
 			return;
 		}
 
@@ -60,7 +63,7 @@ class TestLedgerLauncher {
 			const response = await this.post(data);
 			const result   = await response.json();
 
-			fs.writeFileSync(`${this.options.reporterOutputDir}/trio-onComplete-post.txt`, `onComplete-post`, { encoding : `utf-8` });
+			this.writeFileSync(`${FILE_PREFIX}onComplete-post.txt`, `onComplete-post`, { encoding : `utf-8` });
 
 			// Upload artifacts if enabled
 			if(this.upload_artifacts && result.status === 'success') {
@@ -68,7 +71,7 @@ class TestLedgerLauncher {
 			}
 		}
 		catch(e) {
-			fs.writeFileSync(`${this.options.reporterOutputDir}/trio-post-error.txt`, e.message, { encoding : `utf-8` });
+			this.writeFileSync(`${ERROR_FILE_PREFIX}post.txt`, e.message, { encoding : `utf-8` });
 		}
 	}
 
@@ -80,8 +83,8 @@ class TestLedgerLauncher {
 		const all_hooks  = {};
 
 
-		fs.writeFileSync(`${this.options.reporterOutputDir}/trio-skip-passed.txt`, `Value of SKIP_PASSED_UPLOADS: ${process.env.SKIP_PASSED_UPLOADS}`, { encoding : `utf-8` });
-		fs.writeFileSync(`${this.options.reporterOutputDir}/trio-buildData.txt`, `Starting buildData`, { encoding : `utf-8` });
+		this.writeFileSync(`${FILE_PREFIX}skip-passed.txt`, `Value of SKIP_PASSED_UPLOADS: ${process.env.SKIP_PASSED_UPLOADS}`, { encoding : `utf-8` });
+		this.writeFileSync(`${FILE_PREFIX}buildData.txt`, `Starting buildData`, { encoding : `utf-8` });
 
 		const data = {
 			project_id    : this.options.projectId,
@@ -116,7 +119,7 @@ class TestLedgerLauncher {
 				tmp            = fs.readFileSync(filepath, { encoding : `utf8` });
 			}
 			catch(e) {
-				fs.writeFileSync(`${this.options.reporterOutputDir}/trio-readfile-error.txt`, e.message, { encoding : `utf-8` });
+				this.writeFileSync(`${ERROR_FILE_PREFIX}readfile.txt`, e.message, { encoding : `utf-8` });
 			}
 
 			const match = file.match(/wdio-(\d+-\d+)-/);
@@ -134,7 +137,7 @@ class TestLedgerLauncher {
 				content = JSON.parse(tmp);
 			}
 			catch(e) {
-				fs.writeFileSync(`${this.options.reporterOutputDir}/trio-json-parse-error.txt`, `Failed to parse ${file}: ${e.message}`, { encoding : `utf-8` });
+				this.writeFileSync(`${ERROR_FILE_PREFIX}json-parse.txt`, `Failed to parse ${file}: ${e.message}`, { encoding : `utf-8` });
 				continue;
 			}
 
@@ -207,7 +210,7 @@ class TestLedgerLauncher {
 			break;
 		}
 
-		fs.writeFileSync(`${this.options.reporterOutputDir}/trio-end-buildData.txt`, `Ending buildData`, { encoding : `utf-8` });
+		this.writeFileSync(`${FILE_PREFIX}end-buildData.txt`, `Ending buildData`, { encoding : `utf-8` });
 
 		data.suites = suites;
 
@@ -226,7 +229,11 @@ class TestLedgerLauncher {
 	}
 
 	getApiUrl() {
-		return `https://${this.options.apiUrl?.replace(`https://`, ``) || api_url}`;
+		if(this.options.apiUrl) {
+			return `https://${this.options.apiUrl.replace(`https://`, ``)}`;
+		}
+
+		return api_url;
 	}
 
 	getApiRoute() {
@@ -247,18 +254,17 @@ class TestLedgerLauncher {
 		const artifacts = this.collect_artifacts(data, run_result);
 
 		if(artifacts.length === 0) {
-			fs.writeFileSync(`${this.options.reporterOutputDir}/trio-no-artifacts.txt`, `No artifacts found to upload`, { encoding : `utf-8` });
+			this.writeFileSync(`${ERROR_FILE_PREFIX}no-artifacts.txt`, `No artifacts found to upload`, { encoding : `utf-8` });
 			return;
 		}
 
-		fs.writeFileSync(`${this.options.reporterOutputDir}/trio-artifacts-found.txt`, `Found ${artifacts.length} artifacts`, { encoding : `utf-8` });
-
+		this.writeFileSync(`${FILE_PREFIX}artifacts-found.txt`, `Found ${artifacts.length} artifacts`, { encoding : `utf-8` });
 		try {
 			// Request presigned URLs
 			const presigned_response = await this.request_presigned_urls(artifacts);
 
 			if(!presigned_response.uploads || presigned_response.uploads.length === 0) {
-				fs.writeFileSync(`${this.options.reporterOutputDir}/trio-presigned-empty.txt`, `No presigned URLs returned`, { encoding : `utf-8` });
+				this.writeFileSync(`${ERROR_FILE_PREFIX}presigned-empty.txt`, `No presigned URLs returned`, { encoding : `utf-8` });
 				return;
 			}
 
@@ -274,10 +280,10 @@ class TestLedgerLauncher {
 				await this.confirm_uploads(confirmed_ids);
 			}
 
-			fs.writeFileSync(`${this.options.reporterOutputDir}/trio-artifacts-complete.txt`, `Uploaded ${confirmed_ids.length}/${artifacts.length} artifacts`, { encoding : `utf-8` });
+			this.writeFileSync(`${FILE_PREFIX}artifacts-complete.txt`, `Uploaded ${confirmed_ids.length}/${artifacts.length} artifacts`, { encoding : `utf-8` });
 		}
 		catch(e) {
-			fs.writeFileSync(`${this.options.reporterOutputDir}/trio-artifacts-error.txt`, e.message, { encoding : `utf-8` });
+			this.writeFileSync(`${ERROR_FILE_PREFIX}artifacts-error.txt`, e.message, { encoding : `utf-8` });
 		}
 	}
 
@@ -435,7 +441,7 @@ class TestLedgerLauncher {
 				}))
 			};
 
-			fs.writeFileSync(`${this.options.reporterOutputDir}/trio-presigned-request.txt`, `URL: ${url}\nBatch: ${batch_num}/${total_batches}\nTotal artifacts: ${artifacts.length}\nBatch size: ${batch.length}`, { encoding: 'utf-8' });
+			this.writeFileSync(`${FILE_PREFIX}presigned-request.txt`, `URL: ${url}\nBatch: ${batch_num}/${total_batches}\nTotal artifacts: ${artifacts.length}\nBatch size: ${batch.length}`);
 
 			const response = await fetch(url, {
 				method  : 'POST',
@@ -448,7 +454,7 @@ class TestLedgerLauncher {
 
 			if (!response.ok) {
 				const text = await response.text();
-				fs.writeFileSync(`${this.options.reporterOutputDir}/trio-presigned-failed.txt`, `Status: ${response.status} ${response.statusText}\nURL: ${url}\nBatch: ${batch_num}/${total_batches}\nResponse: ${text.substring(0, 2000)}`, { encoding: 'utf-8' });
+				this.writeFileSync(`${ERROR_FILE_PREFIX}presigned-failed.txt`, `Status: ${response.status} ${response.statusText}\nURL: ${url}\nBatch: ${batch_num}/${total_batches}\nResponse: ${text.substring(0, 2000)}`);
 				throw new Error(`Presigned URL request failed: HTTP ${response.status}`);
 			}
 
@@ -529,10 +535,17 @@ class TestLedgerLauncher {
 
 			if (!response.ok) {
 				const text = await response.text();
-				fs.writeFileSync(`${this.options.reporterOutputDir}/trio-confirm-failed.txt`, `Status: ${response.status} ${response.statusText}\nResponse: ${text.substring(0, 2000)}`, { encoding: 'utf-8' });
+				this.writeFileSync(`${ERROR_FILE_PREFIX}confirm-failed.txt`, `Status: ${response.status} ${response.statusText}\nResponse: ${text.substring(0, 2000)}`);
 				throw new Error(`Confirm uploads failed: HTTP ${response.status}`);
 			}
 		}
+	}
+
+	writeFileSync(filePath, content) {
+		const reporter_directory = this.options.reporterOutputDir;
+		const filepath           = path.join(reporter_directory, filePath);
+
+		fs.writeFileSync(filepath, content, { encoding : `utf-8` });
 	}
 }
 
