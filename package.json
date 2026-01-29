@@ -1,6 +1,6 @@
 {
   "name": "wdio-test-ledger-service",
-  "version": "9.2.10",
+  "version": "9.2.11",
   "description": "WebdriverIO server to send reporter data to testledger.dev",
   "type": "module",
   "main": "src/index.js",
