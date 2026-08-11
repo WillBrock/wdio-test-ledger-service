@@ -31,7 +31,8 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # npm@latest (12+) requires Node >=22; Node 20 breaks the Update npm step
+          node-version: '22'
           registry-url: 'https://registry.npmjs.org'
 
       - name: Update npm
