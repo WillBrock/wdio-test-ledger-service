@@ -22,6 +22,15 @@ const ERROR_FILE_PREFIX = `${FILE_PREFIX}error-`;
 // Server rejects anything larger (see test-reporter-io artifacts.py MAX_FILE_SIZE)
 const MAX_ARTIFACT_BYTES = 100 * 1024 * 1024;
 
+// The run POST goes through API Gateway (10MB cap) to Lambda (6MB cap). A single
+// giant assertion diff stored as both message and stacktrace, times retries, can
+// blow past that and lose the whole run. Newer reporters truncate at the source;
+// this is the safety net for logs written by older reporter versions.
+const MAX_ERROR_CHARS = 64 * 1024;
+
+// If the POST still gets rejected for size, retry once with errors cut to the bone
+const RETRY_MAX_ERROR_CHARS = 2 * 1024;
+
 class TestLedgerLauncher {
 	constructor(options) {
 		this.options = options;
@@ -57,38 +66,121 @@ class TestLedgerLauncher {
 			data = this.buildData(config);
 		}
 		catch(e) {
-			this.writeFileSync(`${ERROR_FILE_PREFIX}builddata.txt`, e.message, { encoding : `utf-8` });
+			this.logError(`${ERROR_FILE_PREFIX}builddata.txt`, e.message);
 			return;
 		}
 
+		this.truncateErrors(data, MAX_ERROR_CHARS);
 
+		let outcome = await this.postRun(data);
+
+		if(!outcome.result && outcome.retryable) {
+			this.logError(`${ERROR_FILE_PREFIX}post-retry.txt`, `Run POST looked like a payload-size rejection, retrying once with errors truncated to ${RETRY_MAX_ERROR_CHARS} chars`);
+			this.truncateErrors(data, RETRY_MAX_ERROR_CHARS);
+			outcome = await this.postRun(data);
+		}
+
+		if(!outcome.result) {
+			return;
+		}
+
+		const result = outcome.result;
+
+		this.writeFileSync(`${FILE_PREFIX}onComplete-post.txt`, `onComplete-post`, { encoding : `utf-8` });
+
+		// Upload artifacts if enabled
+		if(this.upload_artifacts) {
+			if(result.status === `success`) {
+				await this.upload_all_artifacts(data, result);
+			}
+			else {
+				// Previously this fell through silently and no artifacts were ever uploaded
+				this.writeFileSync(`${ERROR_FILE_PREFIX}post-status.txt`, `Run POST returned non-success status: ${JSON.stringify(result).substring(0, 2000)}`);
+			}
+		}
+	}
+
+	/**
+	 * POST the run once. Returns { result, retryable }; result is the parsed
+	 * response on success, null otherwise. retryable flags failures that look
+	 * like payload-size rejections (413 from API Gateway, 5xx from the Lambda
+	 * 6MB invoke cap, or a connection torn down mid-body).
+	 */
+	async postRun(data) {
 		try {
 			const response = await this.post(data);
 
 			if(!response.ok) {
 				const text = await response.text();
-				this.writeFileSync(`${ERROR_FILE_PREFIX}post.txt`, `Status: ${response.status} ${response.statusText}\nResponse: ${text.substring(0, 2000)}`);
-				return;
+				this.logError(`${ERROR_FILE_PREFIX}post.txt`, `Status: ${response.status} ${response.statusText}\nResponse: ${text.substring(0, 2000)}`);
+
+				return {
+					result    : null,
+					retryable : response.status === 413 || response.status >= 500,
+				};
 			}
 
-			const result = await response.json();
-
-			this.writeFileSync(`${FILE_PREFIX}onComplete-post.txt`, `onComplete-post`, { encoding : `utf-8` });
-
-			// Upload artifacts if enabled
-			if(this.upload_artifacts) {
-				if(result.status === `success`) {
-					await this.upload_all_artifacts(data, result);
-				}
-				else {
-					// Previously this fell through silently and no artifacts were ever uploaded
-					this.writeFileSync(`${ERROR_FILE_PREFIX}post-status.txt`, `Run POST returned non-success status: ${JSON.stringify(result).substring(0, 2000)}`);
-				}
-			}
+			return {
+				result    : await response.json(),
+				retryable : false,
+			};
 		}
 		catch(e) {
-			this.writeFileSync(`${ERROR_FILE_PREFIX}post.txt`, e.message, { encoding : `utf-8` });
+			this.logError(`${ERROR_FILE_PREFIX}post.txt`, e.message);
+
+			return {
+				result    : null,
+				retryable : /413|payload|body|EPIPE|ECONNRESET|socket/i.test(e.message),
+			};
 		}
+	}
+
+	/**
+	 * Cap every stored error message/stacktrace. Middle-truncate so the stack
+	 * frames at the end survive a huge assertion diff at the front. Error
+	 * objects are shared across retry entries, so track what we have visited
+	 * to avoid stacking truncation markers.
+	 */
+	truncateErrors(data, max_chars) {
+		const seen = new Set();
+
+		for(const suite of data.suites || []) {
+			for(const test of suite.tests || []) {
+				for(const error of test.errors || []) {
+					if(!error || seen.has(error)) {
+						continue;
+					}
+
+					seen.add(error);
+
+					error.message    = this.truncateText(error.message, max_chars);
+					error.stacktrace = this.truncateText(error.stacktrace, max_chars);
+				}
+			}
+		}
+	}
+
+	truncateText(text, max_chars) {
+		if(typeof text !== `string` || text.length <= max_chars) {
+			return text;
+		}
+
+		const half = Math.floor(max_chars / 2);
+
+		return [
+			text.substring(0, half),
+			`\n… [test-ledger: truncated ${text.length - max_chars} chars] …\n`,
+			text.substring(text.length - half),
+		].join(``);
+	}
+
+	/**
+	 * Failures here used to be visible only in the throwaway workspace files,
+	 * so a lost run left nothing in the CI job log. Mirror them to stderr.
+	 */
+	logError(filename, content) {
+		console.error(`[wdio-test-ledger-service] ${filename.replace(FILE_PREFIX, ``).replace(/\.txt$/, ``)}: ${content}`);
+		this.writeFileSync(filename, content, { encoding : `utf-8` });
 	}
 
 	buildData(config) {
