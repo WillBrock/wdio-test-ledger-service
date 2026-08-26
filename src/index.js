@@ -227,7 +227,9 @@ class TestLedgerLauncher {
 				tmp            = fs.readFileSync(filepath, { encoding : `utf8` });
 			}
 			catch(e) {
-				this.writeFileSync(`${ERROR_FILE_PREFIX}readfile.txt`, e.message, { encoding : `utf-8` });
+				// logError, not a silent breadcrumb — a dropped file means a spec
+				// vanishes from the run (a FAILED spec reads as "0 failed" downstream)
+				this.logError(`${ERROR_FILE_PREFIX}readfile.txt`, `Dropping ${file} from the upload (read failed): ${e.message}`);
 			}
 
 			const match = file.match(/wdio-(\d+-\d+)-/);
@@ -237,6 +239,11 @@ class TestLedgerLauncher {
 			const identifier = match[1];
 
 			if(!tmp) {
+				// Empty file = the reporter never finished writing this spec's
+				// results (worker died mid-write) — loud for the same reason
+				if(tmp === ``) {
+					this.logError(`${ERROR_FILE_PREFIX}empty-file.txt`, `Dropping ${file} from the upload (file is empty)`);
+				}
 				continue;
 			}
 
@@ -245,7 +252,9 @@ class TestLedgerLauncher {
 				content = JSON.parse(tmp);
 			}
 			catch(e) {
-				this.writeFileSync(`${ERROR_FILE_PREFIX}json-parse.txt`, `Failed to parse ${file}: ${e.message}`, { encoding : `utf-8` });
+				// logError, not a silent breadcrumb — same reason as the read
+				// failure above: this spec's result is about to vanish from the run
+				this.logError(`${ERROR_FILE_PREFIX}json-parse.txt`, `Dropping ${file} from the upload (JSON parse failed): ${e.message}`);
 				continue;
 			}
 
